@@ -8,10 +8,10 @@ import * as babel from '@babel/parser';
 
 import { ALIAS_AS_RELATIVE, ALIAS_AS_RESOLVABLE } from './common';
 
-function isLiteral(node: any): node is babelTypes.StringLiteral {
+function isLiteral(node: unknown): node is babelTypes.StringLiteral {
   // TODO: this function is a lie and can probably be better
   // I was using babelTypes.isStringLiteral but that broke a bunch of tests
-  return node?.type === 'Literal';
+  return (node as Record<string, string>)?.type === 'Literal';
 }
 
 function reconstructSpecifiers(
@@ -190,9 +190,7 @@ function visitor_PATH_JOIN(n: babelTypes.Node) {
   }
 
   const f =
-    n.arguments &&
-    isLiteral(n.arguments[1]) &&
-    n.arguments.length === 2; // TODO concat them
+    n.arguments && isLiteral(n.arguments[1]) && n.arguments.length === 2; // TODO concat them
 
   if (!f) {
     return null;
@@ -447,6 +445,7 @@ type VisitorFunction = (node: babelTypes.Node, trying?: boolean) => boolean;
 function traverse(ast: babelTypes.File, visitor: VisitorFunction) {
   // modified esprima-walk to support
   // visitor return value and "trying" flag
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const stack: Array<[any, boolean]> = [[ast, false]];
 
   for (let i = 0; i < stack.length; i += 1) {
@@ -465,7 +464,7 @@ function traverse(ast: babelTypes.File, visitor: VisitorFunction) {
               for (let j = 0; j < child.length; j += 1) {
                 stack.push([child[j], trying]);
               }
-            } else if (child && typeof (child as any).type === 'string') {
+            } else if (child && typeof child.type === 'string') {
               stack.push([child, trying]);
             }
           }
