@@ -97,7 +97,8 @@ function insideMountpoint(f) {
     .map((mountpoint) => {
       var { interior } = mountpoint;
       var { exterior } = mountpoint;
-      if (util.isRegExp(interior)) return file.replace(interior, exterior);
+      if (util.isRegExp(interior) && interior.match(exterior))
+        return file.replace(interior, exterior);
       if (interior === file) return exterior;
       var left = interior + require('path').sep;
       if (file.slice(0, left.length) !== left) return null;
@@ -449,8 +450,8 @@ function payloadFileSync(pointer) {
     // eslint-disable-line camelcase
     var error = new Error(
       `${fileOrDirectory} '${stripSnapshot(path)}' ` +
-        `was not included into executable at compilation stage. ` +
-        `Please recompile adding it as asset or script.`
+      `was not included into executable at compilation stage. ` +
+      `Please recompile adding it as asset or script.`
     );
     error.errno = -ENOENT;
     error.code = 'ENOENT';
@@ -1701,7 +1702,7 @@ function payloadFileSync(pointer) {
       let reject;
       const p = new Promise((res, rej) => {
         resolve = res;
-        reject  = rej;
+        reject = rej;
       });
 
       p.child = o.apply(
