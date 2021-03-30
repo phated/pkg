@@ -3497,10 +3497,10 @@ pkg-dir@^3.0.0:
   dependencies:
     find-up "^3.0.0"
 
-pkg-fetch@2.6.9:
-  version "2.6.9"
-  resolved "https://registry.yarnpkg.com/pkg-fetch/-/pkg-fetch-2.6.9.tgz#c18c5fa9604c57a3df3d9630afb64e176bc8732d"
-  integrity sha512-EnVR8LRILXBvaNP+wJOSY02c3+qDDfyEyR+aqAHLhcc9PBnbxFT9UZ1+If49goPQzQPn26TzF//fc6KXZ0aXEg==
+pkg-fetch@2.6.10:
+  version "2.6.10"
+  resolved "https://registry.yarnpkg.com/pkg-fetch/-/pkg-fetch-2.6.10.tgz#febb3d09d9c20f61d80cfa1cebdea539ac1452ac"
+  integrity sha512-qlRE8yzvQdttALq54pTF+OZ+2bG9BasMy+Z0uAdvPTKLPstFcoWK/HEI5SadjNWJgv8Ymi5PMKuZXetSm12lWw==
   dependencies:
     "@babel/runtime" "^7.9.2"
     byline "^5.0.0"
