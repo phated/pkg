@@ -97,7 +97,7 @@ function insideMountpoint(f) {
     .map((mountpoint) => {
       var { interior } = mountpoint;
       var { exterior } = mountpoint;
-      if (util.isRegExp(interior) && interior.test(exterior))
+      if (util.isRegExp(interior) && interior.test(file))
         return file.replace(interior, exterior);
       if (interior === file) return exterior;
       var left = interior + require('path').sep;
