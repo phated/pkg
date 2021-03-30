@@ -2,14 +2,14 @@
   "name": "pkg",
   "version": "4.5.1",
   "description": "Package your Node.js project into an executable",
-  "main": "lib/index.js",
+  "main": "lib-es5/index.js",
   "license": "MIT",
   "repository": "vercel/pkg",
   "bin": {
-    "pkg": "lib/bin.js"
+    "pkg": "lib-es5/bin.js"
   },
   "files": [
-    "lib/*.js",
+    "lib-es5/*.js",
     "dictionary/*.js",
     "prelude/*.js"
   ],
