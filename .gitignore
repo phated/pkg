@@ -1,6 +1,3 @@
-# build output
-/lib-es5
-
 # dependencies
 /node_modules
 
