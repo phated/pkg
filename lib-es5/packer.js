@@ -1,168 +1,192 @@
 "use strict";
-
-var _interopRequireDefault = require("@babel/runtime/helpers/interopRequireDefault");
-
-Object.defineProperty(exports, "__esModule", {
-  value: true
-});
-exports.default = packer;
-
-var _defineProperty2 = _interopRequireDefault(require("@babel/runtime/helpers/defineProperty"));
-
-var _assert = _interopRequireDefault(require("assert"));
-
-var _fsExtra = _interopRequireDefault(require("fs-extra"));
-
-var _common = require("../prelude/common");
-
-var _log = require("./log");
-
-var _package = require("../package.json");
-
-function ownKeys(object, enumerableOnly) { var keys = Object.keys(object); if (Object.getOwnPropertySymbols) { var symbols = Object.getOwnPropertySymbols(object); if (enumerableOnly) symbols = symbols.filter(function (sym) { return Object.getOwnPropertyDescriptor(object, sym).enumerable; }); keys.push.apply(keys, symbols); } return keys; }
-
-function _objectSpread(target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i] != null ? arguments[i] : {}; if (i % 2) { ownKeys(Object(source), true).forEach(function (key) { (0, _defineProperty2.default)(target, key, source[key]); }); } else if (Object.getOwnPropertyDescriptors) { Object.defineProperties(target, Object.getOwnPropertyDescriptors(source)); } else { ownKeys(Object(source)).forEach(function (key) { Object.defineProperty(target, key, Object.getOwnPropertyDescriptor(source, key)); }); } } return target; }
-
-const bootstrapText = _fsExtra.default.readFileSync(require.resolve('../prelude/bootstrap.js'), 'utf8').replace('%VERSION%', _package.version);
-
-const commonText = _fsExtra.default.readFileSync(require.resolve('../prelude/common.js'), 'utf8');
-
-function itemsToText(items) {
-  const len = items.length;
-  return len.toString() + (len % 10 === 1 ? ' item' : ' items');
-}
-
-function hasAnyStore(record) {
-  // discarded records like native addons
-  for (const store of [_common.STORE_BLOB, _common.STORE_CONTENT, _common.STORE_LINKS, _common.STORE_STAT]) {
-    if (record[store]) return true;
-  }
-
-  return false;
-}
-
-function packer({
-  records,
-  entrypoint,
-  bytecode
-}) {
-  const stripes = [];
-
-  for (const snap in records) {
-    if (records[snap]) {
-      const record = records[snap];
-      const {
-        file
-      } = record;
-      if (!hasAnyStore(record)) continue;
-      (0, _assert.default)(record[_common.STORE_STAT], 'packer: no STORE_STAT');
-      (0, _assert.default)(record[_common.STORE_BLOB] || record[_common.STORE_CONTENT] || record[_common.STORE_LINKS]);
-
-      if (record[_common.STORE_BLOB] && !bytecode) {
-        delete record[_common.STORE_BLOB];
-
-        if (!record[_common.STORE_CONTENT]) {
-          // TODO make a test for it?
-          throw (0, _log.wasReported)('--no-bytecode and no source breaks final executable', [file, 'Please run with "-d" and without "--no-bytecode" first, and make', 'sure that debug log does not contain "was included as bytecode".']);
+/* eslint-disable complexity */
+var __assign = (this && this.__assign) || function () {
+    __assign = Object.assign || function(t) {
+        for (var s, i = 1, n = arguments.length; i < n; i++) {
+            s = arguments[i];
+            for (var p in s) if (Object.prototype.hasOwnProperty.call(s, p))
+                t[p] = s[p];
         }
-      }
-
-      for (const store of [_common.STORE_BLOB, _common.STORE_CONTENT, _common.STORE_LINKS, _common.STORE_STAT]) {
-        const value = record[store];
-        if (!value) continue;
-
-        if (store === _common.STORE_BLOB || store === _common.STORE_CONTENT) {
-          if (record.body === undefined) {
-            stripes.push({
-              snap,
-              store,
-              file
-            });
-          } else if (Buffer.isBuffer(record.body)) {
-            stripes.push({
-              snap,
-              store,
-              buffer: record.body
-            });
-          } else if (typeof record.body === 'string') {
-            stripes.push({
-              snap,
-              store,
-              buffer: Buffer.from(record.body)
-            });
-          } else {
-            (0, _assert.default)(false, 'packer: bad STORE_BLOB/STORE_CONTENT');
-          }
-        } else if (store === _common.STORE_LINKS) {
-          if (Array.isArray(value)) {
-            const buffer = Buffer.from(JSON.stringify(value));
-            stripes.push({
-              snap,
-              store,
-              buffer
-            });
-          } else {
-            (0, _assert.default)(false, 'packer: bad STORE_LINKS');
-          }
-        } else if (store === _common.STORE_STAT) {
-          if (typeof value === 'object') {
-            // reproducible
-            delete value.atime;
-            delete value.atimeMs;
-            delete value.mtime;
-            delete value.mtimeMs;
-            delete value.ctime;
-            delete value.ctimeMs;
-            delete value.birthtime;
-            delete value.birthtimeMs; // non-date
-
-            delete value.blksize;
-            delete value.blocks;
-            delete value.dev;
-            delete value.gid;
-            delete value.ino;
-            delete value.nlink;
-            delete value.rdev;
-            delete value.uid;
-            if (!value.isFile()) value.size = 0; // portable
-
-            const newStat = _objectSpread({}, value);
-
-            newStat.isFileValue = value.isFile();
-            newStat.isDirectoryValue = value.isDirectory();
-            newStat.isSocketValue = value.isSocket();
-            const buffer = Buffer.from(JSON.stringify(newStat));
-            stripes.push({
-              snap,
-              store,
-              buffer
-            });
-          } else {
-            (0, _assert.default)(false, 'packer: bad STORE_STAT');
-          }
-        } else {
-          (0, _assert.default)(false, 'packer: unknown store');
+        return t;
+    };
+    return __assign.apply(this, arguments);
+};
+var __values = (this && this.__values) || function(o) {
+    var s = typeof Symbol === "function" && Symbol.iterator, m = s && o[s], i = 0;
+    if (m) return m.call(o);
+    if (o && typeof o.length === "number") return {
+        next: function () {
+            if (o && i >= o.length) o = void 0;
+            return { value: o && o[i++], done: !o };
         }
-      }
-
-      if (record[_common.STORE_CONTENT]) {
-        const disclosed = (0, _common.isDotJS)(file) || (0, _common.isDotJSON)(file);
-
-        _log.log.debug(disclosed ? 'The file was included as DISCLOSED code (with sources)' : 'The file was included as asset content', file);
-      } else if (record[_common.STORE_BLOB]) {
-        _log.log.debug('The file was included as bytecode (no sources)', file);
-      } else if (record[_common.STORE_LINKS]) {
-        const value = record[_common.STORE_LINKS];
-
-        _log.log.debug(`The directory files list was included (${itemsToText(value)})`, file);
-      }
+    };
+    throw new TypeError(s ? "Object is not iterable." : "Symbol.iterator is not defined.");
+};
+var __read = (this && this.__read) || function (o, n) {
+    var m = typeof Symbol === "function" && o[Symbol.iterator];
+    if (!m) return o;
+    var i = m.call(o), r, ar = [], e;
+    try {
+        while ((n === void 0 || n-- > 0) && !(r = i.next()).done) ar.push(r.value);
     }
-  }
-
-  const prelude = `return (function (REQUIRE_COMMON, VIRTUAL_FILESYSTEM, DEFAULT_ENTRYPOINT) { ${bootstrapText}\n})(function (exports) {\n${commonText}\n},\n${'%VIRTUAL_FILESYSTEM%'}\n,\n${'%DEFAULT_ENTRYPOINT%'}\n);`;
-  return {
-    prelude,
-    entrypoint,
-    stripes
-  };
+    catch (error) { e = { error: error }; }
+    finally {
+        try {
+            if (r && !r.done && (m = i["return"])) m.call(i);
+        }
+        finally { if (e) throw e.error; }
+    }
+    return ar;
+};
+var __spreadArray = (this && this.__spreadArray) || function (to, from) {
+    for (var i = 0, il = from.length, j = to.length; i < il; i++, j++)
+        to[j] = from[i];
+    return to;
+};
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+var assert_1 = __importDefault(require("assert"));
+var fs_extra_1 = __importDefault(require("fs-extra"));
+var path_1 = __importDefault(require("path"));
+var common_1 = require("./common");
+var log_1 = require("./log");
+var version = JSON.parse(fs_extra_1.default.readFileSync(path_1.default.join(__dirname, '../package.json'), 'utf-8')).version;
+var bootstrapText = fs_extra_1.default
+    .readFileSync(require.resolve('../prelude/bootstrap.js'), 'utf8')
+    .replace('%VERSION%', version);
+var commonText = fs_extra_1.default.readFileSync(require.resolve('./common'), 'utf8');
+var diagnosticText = fs_extra_1.default.readFileSync(require.resolve('../prelude/diagnostic.js'), 'utf8');
+function itemsToText(items) {
+    var len = items.length;
+    return len.toString() + (len % 10 === 1 ? ' item' : ' items');
 }
+function hasAnyStore(record) {
+    var e_1, _a;
+    try {
+        // discarded records like native addons
+        for (var _b = __values([common_1.STORE_BLOB, common_1.STORE_CONTENT, common_1.STORE_LINKS, common_1.STORE_STAT]), _c = _b.next(); !_c.done; _c = _b.next()) {
+            var store = _c.value;
+            if (record[store])
+                return true;
+        }
+    }
+    catch (e_1_1) { e_1 = { error: e_1_1 }; }
+    finally {
+        try {
+            if (_c && !_c.done && (_a = _b.return)) _a.call(_b);
+        }
+        finally { if (e_1) throw e_1.error; }
+    }
+    return false;
+}
+function packer(_a) {
+    var e_2, _b;
+    var records = _a.records, entrypoint = _a.entrypoint, bytecode = _a.bytecode;
+    var stripes = [];
+    for (var snap in records) {
+        if (records[snap]) {
+            var record = records[snap];
+            var file = record.file;
+            if (!hasAnyStore(record)) {
+                continue;
+            }
+            assert_1.default(record[common_1.STORE_STAT], 'packer: no STORE_STAT');
+            assert_1.default(record[common_1.STORE_BLOB] ||
+                record[common_1.STORE_CONTENT] ||
+                record[common_1.STORE_LINKS] ||
+                record[common_1.STORE_STAT]);
+            if (record[common_1.STORE_BLOB] && !bytecode) {
+                delete record[common_1.STORE_BLOB];
+                if (!record[common_1.STORE_CONTENT]) {
+                    // TODO make a test for it?
+                    throw log_1.wasReported('--no-bytecode and no source breaks final executable', [
+                        file,
+                        'Please run with "-d" and without "--no-bytecode" first, and make',
+                        'sure that debug log does not contain "was included as bytecode".',
+                    ]);
+                }
+            }
+            try {
+                for (var _c = (e_2 = void 0, __values([
+                    common_1.STORE_BLOB,
+                    common_1.STORE_CONTENT,
+                    common_1.STORE_LINKS,
+                    common_1.STORE_STAT,
+                ])), _d = _c.next(); !_d.done; _d = _c.next()) {
+                    var store = _d.value;
+                    var value = record[store];
+                    if (!value) {
+                        continue;
+                    }
+                    if (store === common_1.STORE_BLOB || store === common_1.STORE_CONTENT) {
+                        if (record.body === undefined) {
+                            stripes.push({ snap: snap, store: store, file: file });
+                        }
+                        else if (Buffer.isBuffer(record.body)) {
+                            stripes.push({ snap: snap, store: store, buffer: record.body });
+                        }
+                        else if (typeof record.body === 'string') {
+                            stripes.push({ snap: snap, store: store, buffer: Buffer.from(record.body) });
+                        }
+                        else {
+                            assert_1.default(false, 'packer: bad STORE_BLOB/STORE_CONTENT');
+                        }
+                    }
+                    else if (store === common_1.STORE_LINKS) {
+                        if (Array.isArray(value)) {
+                            var dedupedValue = __spreadArray([], __read(new Set(value)));
+                            log_1.log.debug('files & folders deduped = ', dedupedValue);
+                            var buffer = Buffer.from(JSON.stringify(dedupedValue));
+                            stripes.push({ snap: snap, store: store, buffer: buffer });
+                        }
+                        else {
+                            assert_1.default(false, 'packer: bad STORE_LINKS');
+                        }
+                    }
+                    else if (store === common_1.STORE_STAT) {
+                        if (typeof value === 'object') {
+                            var newStat = __assign({}, value);
+                            var buffer = Buffer.from(JSON.stringify(newStat));
+                            stripes.push({ snap: snap, store: store, buffer: buffer });
+                        }
+                        else {
+                            assert_1.default(false, 'packer: unknown store');
+                        }
+                    }
+                    if (record[common_1.STORE_CONTENT]) {
+                        var disclosed = common_1.isDotJS(file) || common_1.isDotJSON(file);
+                        log_1.log.debug(disclosed
+                            ? 'The file was included as DISCLOSED code (with sources)'
+                            : 'The file was included as asset content', file);
+                    }
+                    else if (record[common_1.STORE_BLOB]) {
+                        log_1.log.debug('The file was included as bytecode (no sources)', file);
+                    }
+                    else if (record[common_1.STORE_LINKS]) {
+                        var link = record[common_1.STORE_LINKS];
+                        log_1.log.debug("The directory files list was included (" + itemsToText(link) + ")", file);
+                    }
+                }
+            }
+            catch (e_2_1) { e_2 = { error: e_2_1 }; }
+            finally {
+                try {
+                    if (_d && !_d.done && (_b = _c.return)) _b.call(_c);
+                }
+                finally { if (e_2) throw e_2.error; }
+            }
+        }
+    }
+    var prelude = "return (function (REQUIRE_COMMON, VIRTUAL_FILESYSTEM, DEFAULT_ENTRYPOINT, SYMLINKS) { \n        " + bootstrapText + (log_1.log.debugMode ? diagnosticText : '') + "\n})(function (exports) {\n" + commonText + "\n},\n" +
+        "%VIRTUAL_FILESYSTEM%" +
+        "\n,\n" +
+        "%DEFAULT_ENTRYPOINT%" +
+        "\n,\n" +
+        "%SYMLINKS%" +
+        "\n);";
+    return { prelude: prelude, entrypoint: entrypoint, stripes: stripes };
+}
+exports.default = packer;
+//# sourceMappingURL=packer.js.map

@@ -1,336 +1,332 @@
 "use strict";
-
-var _interopRequireDefault = require("@babel/runtime/helpers/interopRequireDefault");
-
-Object.defineProperty(exports, "__esModule", {
-  value: true
-});
-exports.default = producer;
-
-var _defineProperty2 = _interopRequireDefault(require("@babel/runtime/helpers/defineProperty"));
-
-var _multistream = _interopRequireDefault(require("multistream"));
-
-var _assert = _interopRequireDefault(require("assert"));
-
-var _child_process = require("child_process");
-
-var _fs = _interopRequireDefault(require("fs"));
-
-var _intoStream = _interopRequireDefault(require("into-stream"));
-
-var _path = _interopRequireDefault(require("path"));
-
-var _streamMeter = _interopRequireDefault(require("stream-meter"));
-
-var _common = require("../prelude/common");
-
-var _log = require("./log");
-
-var _fabricator = require("./fabricator");
-
-function ownKeys(object, enumerableOnly) { var keys = Object.keys(object); if (Object.getOwnPropertySymbols) { var symbols = Object.getOwnPropertySymbols(object); if (enumerableOnly) symbols = symbols.filter(function (sym) { return Object.getOwnPropertyDescriptor(object, sym).enumerable; }); keys.push.apply(keys, symbols); } return keys; }
-
-function _objectSpread(target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i] != null ? arguments[i] : {}; if (i % 2) { ownKeys(Object(source), true).forEach(function (key) { (0, _defineProperty2.default)(target, key, source[key]); }); } else if (Object.getOwnPropertyDescriptors) { Object.defineProperties(target, Object.getOwnPropertyDescriptors(source)); } else { ownKeys(Object(source)).forEach(function (key) { Object.defineProperty(target, key, Object.getOwnPropertyDescriptor(source, key)); }); } } return target; }
-
-function discoverPlaceholder(binaryBuffer, searchString, padder) {
-  const placeholder = Buffer.from(searchString);
-  const position = binaryBuffer.indexOf(placeholder);
-  if (position === -1) return {
-    notFound: true
-  };
-  return {
-    position,
-    size: placeholder.length,
-    padder
-  };
-}
-
-function injectPlaceholder(fd, placeholder, value, cb) {
-  const {
-    notFound,
-    position,
-    size,
-    padder
-  } = placeholder;
-  if (notFound) (0, _assert.default)(false, 'Placeholder for not found');
-  if (typeof value === 'number') value = value.toString();
-  if (typeof value === 'string') value = Buffer.from(value);
-  const padding = Buffer.from(padder.repeat(size - value.length));
-  value = Buffer.concat([value, padding]);
-
-  _fs.default.write(fd, value, 0, value.length, position, cb);
-}
-
-function discoverPlaceholders(binaryBuffer) {
-  return {
-    BAKERY: discoverPlaceholder(binaryBuffer, `\0${'// BAKERY '.repeat(20)}`, '\0'),
-    PAYLOAD_POSITION: discoverPlaceholder(binaryBuffer, '// PAYLOAD_POSITION //', ' '),
-    PAYLOAD_SIZE: discoverPlaceholder(binaryBuffer, '// PAYLOAD_SIZE //', ' '),
-    PRELUDE_POSITION: discoverPlaceholder(binaryBuffer, '// PRELUDE_POSITION //', ' '),
-    PRELUDE_SIZE: discoverPlaceholder(binaryBuffer, '// PRELUDE_SIZE //', ' ')
-  };
-}
-
-function injectPlaceholders(fd, placeholders, values, cb) {
-  injectPlaceholder(fd, placeholders.BAKERY, values.BAKERY, error => {
-    if (error) return cb(error);
-    injectPlaceholder(fd, placeholders.PAYLOAD_POSITION, values.PAYLOAD_POSITION, error2 => {
-      if (error2) return cb(error2);
-      injectPlaceholder(fd, placeholders.PAYLOAD_SIZE, values.PAYLOAD_SIZE, error3 => {
-        if (error3) return cb(error3);
-        injectPlaceholder(fd, placeholders.PRELUDE_POSITION, values.PRELUDE_POSITION, error4 => {
-          if (error4) return cb(error4);
-          injectPlaceholder(fd, placeholders.PRELUDE_SIZE, values.PRELUDE_SIZE, cb);
-        });
-      });
-    });
-  });
-}
-
-function makeBakeryValueFromBakes(bakes) {
-  const parts = [];
-
-  if (bakes.length) {
-    for (let i = 0; i < bakes.length; i += 1) {
-      parts.push(Buffer.from(bakes[i]));
-      parts.push(Buffer.alloc(1));
-    }
-
-    parts.push(Buffer.alloc(1));
-  }
-
-  return Buffer.concat(parts);
-}
-
-function replaceDollarWise(s, sf, st) {
-  return s.replace(sf, () => st);
-}
-
-function makePreludeBufferFromPrelude(prelude) {
-  return Buffer.from(`(function(process, require, console, EXECPATH_FD, PAYLOAD_POSITION, PAYLOAD_SIZE) { ${prelude}\n})` // dont remove \n
-  );
-}
-
-function findPackageJson(nodeFile) {
-  let dir = nodeFile;
-
-  while (dir !== '/') {
-    dir = _path.default.dirname(dir);
-
-    if (_fs.default.existsSync(_path.default.join(dir, 'package.json'))) {
-      break;
-    }
-  }
-
-  if (dir === '/') {
-    throw new Error(`package.json not found for "${nodeFile}"`);
-  }
-
-  return dir;
-}
-
-const platform = {
-  macos: 'darwin',
-  win: 'win32',
-  linux: 'linux'
+var __assign = (this && this.__assign) || function () {
+    __assign = Object.assign || function(t) {
+        for (var s, i = 1, n = arguments.length; i < n; i++) {
+            s = arguments[i];
+            for (var p in s) if (Object.prototype.hasOwnProperty.call(s, p))
+                t[p] = s[p];
+        }
+        return t;
+    };
+    return __assign.apply(this, arguments);
 };
-
-function nativePrebuildInstall(target, nodeFile) {
-  const prebuild = _path.default.join(__dirname, '../node_modules/.bin/prebuild-install');
-
-  const dir = findPackageJson(nodeFile); // parse the target node version from the binaryPath
-
-  const nodeVersion = _path.default.basename(target.binaryPath).split('-')[1];
-
-  if (!/^v[0-9]+\.[0-9]+\.[0-9]+$/.test(nodeVersion)) {
-    throw new Error(`Couldn't find node version, instead got: ${nodeVersion}`);
-  } // prebuild-install will overwrite the target .node file. Instead, we're
-  // going to:
-  //  * Take a backup
-  //  * run prebuild
-  //  * move the prebuild to a new name with a platform/version extension
-  //  * put the backed up file back
-
-
-  const nativeFile = `${nodeFile}.${target.platform}.${nodeVersion}`;
-
-  if (_fs.default.existsSync(nativeFile)) {
-    return nativeFile;
-  }
-
-  if (!_fs.default.existsSync(`${nodeFile}.bak`)) {
-    _fs.default.copyFileSync(nodeFile, `${nodeFile}.bak`);
-  }
-
-  (0, _child_process.execSync)(`${prebuild} -t ${nodeVersion} --platform ${platform[target.platform]} --arch ${target.arch}`, {
-    cwd: dir
-  });
-
-  _fs.default.copyFileSync(nodeFile, nativeFile);
-
-  _fs.default.copyFileSync(`${nodeFile}.bak`, nodeFile);
-
-  return nativeFile;
+var __values = (this && this.__values) || function(o) {
+    var s = typeof Symbol === "function" && Symbol.iterator, m = s && o[s], i = 0;
+    if (m) return m.call(o);
+    if (o && typeof o.length === "number") return {
+        next: function () {
+            if (o && i >= o.length) o = void 0;
+            return { value: o && o[i++], done: !o };
+        }
+    };
+    throw new TypeError(s ? "Object is not iterable." : "Symbol.iterator is not defined.");
+};
+var __read = (this && this.__read) || function (o, n) {
+    var m = typeof Symbol === "function" && o[Symbol.iterator];
+    if (!m) return o;
+    var i = m.call(o), r, ar = [], e;
+    try {
+        while ((n === void 0 || n-- > 0) && !(r = i.next()).done) ar.push(r.value);
+    }
+    catch (error) { e = { error: error }; }
+    finally {
+        try {
+            if (r && !r.done && (m = i["return"])) m.call(i);
+        }
+        finally { if (e) throw e.error; }
+    }
+    return ar;
+};
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+var multistream_1 = __importDefault(require("multistream"));
+var assert_1 = __importDefault(require("assert"));
+var child_process_1 = require("child_process");
+var fs_1 = __importDefault(require("fs"));
+var into_stream_1 = __importDefault(require("into-stream"));
+var path_1 = __importDefault(require("path"));
+var stream_meter_1 = __importDefault(require("stream-meter"));
+var common_1 = require("./common");
+var log_1 = require("./log");
+var fabricator_1 = require("./fabricator");
+var types_1 = require("./types");
+function discoverPlaceholder(binaryBuffer, searchString, padder) {
+    var placeholder = Buffer.from(searchString);
+    var position = binaryBuffer.indexOf(placeholder);
+    if (position === -1) {
+        return { notFound: true };
+    }
+    return { position: position, size: placeholder.length, padder: padder };
 }
-
-function producer({
-  backpack,
-  bakes,
-  slash,
-  target
-}) {
-  return new Promise((resolve, reject) => {
-    if (!Buffer.alloc) {
-      throw (0, _log.wasReported)('Your node.js does not have Buffer.alloc. Please upgrade!');
+function injectPlaceholder(fd, placeholder, value, cb) {
+    if ('notFound' in placeholder) {
+        assert_1.default(false, 'Placeholder for not found');
     }
-
-    const {
-      prelude
-    } = backpack;
-    let {
-      entrypoint,
-      stripes
-    } = backpack;
-    entrypoint = (0, _common.snapshotify)(entrypoint, slash);
-    stripes = stripes.slice();
-    const vfs = {};
-
-    for (const stripe of stripes) {
-      let {
-        snap
-      } = stripe;
-      snap = (0, _common.snapshotify)(snap, slash);
-      if (!vfs[snap]) vfs[snap] = {};
+    var position = placeholder.position, size = placeholder.size, padder = placeholder.padder;
+    var stringValue = Buffer.from('');
+    if (typeof value === 'number') {
+        stringValue = Buffer.from(value.toString());
     }
-
-    let meter;
-    let count = 0;
-
-    function pipeToNewMeter(s) {
-      meter = (0, _streamMeter.default)();
-      return s.pipe(meter);
+    else if (typeof value === 'string') {
+        stringValue = Buffer.from(value);
     }
-
-    function next(s) {
-      count += 1;
-      return pipeToNewMeter(s);
+    else {
+        stringValue = value;
     }
-
-    const binaryBuffer = _fs.default.readFileSync(target.binaryPath);
-
-    const placeholders = discoverPlaceholders(binaryBuffer);
-    let track = 0;
-    let prevStripe;
-    let payloadPosition;
-    let payloadSize;
-    let preludePosition;
-    let preludeSize;
-    new _multistream.default(cb => {
-      if (count === 0) {
-        return cb(undefined, next((0, _intoStream.default)(binaryBuffer)));
-      }
-
-      if (count === 1) {
-        payloadPosition = meter.bytes;
-        return cb(undefined, next((0, _intoStream.default)(Buffer.alloc(0))));
-      }
-
-      if (count === 2) {
-        if (prevStripe && !prevStripe.skip) {
-          const {
-            store
-          } = prevStripe;
-          let {
-            snap
-          } = prevStripe;
-          snap = (0, _common.snapshotify)(snap, slash);
-          vfs[snap][store] = [track, meter.bytes];
-          track += meter.bytes;
+    var padding = Buffer.from(padder.repeat(size - stringValue.length));
+    stringValue = Buffer.concat([stringValue, padding]);
+    fs_1.default.write(fd, stringValue, 0, stringValue.length, position, cb);
+}
+function discoverPlaceholders(binaryBuffer) {
+    return {
+        BAKERY: discoverPlaceholder(binaryBuffer, "\0" + '// BAKERY '.repeat(20), '\0'),
+        PAYLOAD_POSITION: discoverPlaceholder(binaryBuffer, '// PAYLOAD_POSITION //', ' '),
+        PAYLOAD_SIZE: discoverPlaceholder(binaryBuffer, '// PAYLOAD_SIZE //', ' '),
+        PRELUDE_POSITION: discoverPlaceholder(binaryBuffer, '// PRELUDE_POSITION //', ' '),
+        PRELUDE_SIZE: discoverPlaceholder(binaryBuffer, '// PRELUDE_SIZE //', ' '),
+    };
+}
+function injectPlaceholders(fd, placeholders, values, cb) {
+    injectPlaceholder(fd, placeholders.BAKERY, values.BAKERY, function (error) {
+        if (error) {
+            return cb(error);
         }
-
-        if (stripes.length) {
-          // clone to prevent 'skip' propagate
-          // to other targets, since same stripe
-          // is used for several targets
-          const stripe = _objectSpread({}, stripes.shift());
-
-          prevStripe = stripe;
-
-          if (stripe.buffer) {
-            if (stripe.store === _common.STORE_BLOB) {
-              const snap = (0, _common.snapshotify)(stripe.snap, slash);
-              return (0, _fabricator.fabricateTwice)(bakes, target.fabricator, snap, stripe.buffer, (error, buffer) => {
-                if (error) {
-                  _log.log.warn(error.message);
-
-                  stripe.skip = true;
-                  return cb(undefined, (0, _intoStream.default)(Buffer.alloc(0)));
+        injectPlaceholder(fd, placeholders.PAYLOAD_POSITION, values.PAYLOAD_POSITION, function (error2) {
+            if (error2) {
+                return cb(error2);
+            }
+            injectPlaceholder(fd, placeholders.PAYLOAD_SIZE, values.PAYLOAD_SIZE, function (error3) {
+                if (error3) {
+                    return cb(error3);
                 }
-
-                cb(undefined, pipeToNewMeter((0, _intoStream.default)(buffer)));
-              });
-            }
-
-            return cb(undefined, pipeToNewMeter((0, _intoStream.default)(stripe.buffer)));
-          }
-
-          if (stripe.file) {
-            if (stripe.file === target.output) {
-              return cb((0, _log.wasReported)('Trying to take executable into executable', stripe.file));
-            }
-
-            _assert.default.strictEqual(stripe.store, _common.STORE_CONTENT); // others must be buffers from walker
-
-
-            if ((0, _common.isDotNODE)(stripe.file)) {
-              try {
-                const platformFile = nativePrebuildInstall(target, stripe.file);
-
-                if (_fs.default.existsSync(platformFile)) {
-                  return cb(undefined, pipeToNewMeter(_fs.default.createReadStream(platformFile)));
-                }
-              } catch (err) {
-                _log.log.debug(`prebuild-install failed[${stripe.file}]:`, err);
-              }
-            }
-
-            return cb(undefined, pipeToNewMeter(_fs.default.createReadStream(stripe.file)));
-          }
-
-          (0, _assert.default)(false, 'producer: bad stripe');
-        } else {
-          payloadSize = track;
-          preludePosition = payloadPosition + payloadSize;
-          return cb(undefined, next((0, _intoStream.default)(makePreludeBufferFromPrelude(replaceDollarWise(replaceDollarWise(prelude, '%VIRTUAL_FILESYSTEM%', JSON.stringify(vfs)), '%DEFAULT_ENTRYPOINT%', JSON.stringify(entrypoint))))));
-        }
-      } else {
-        return cb();
-      }
-    }).on('error', error => {
-      reject(error);
-    }).pipe(_fs.default.createWriteStream(target.output)).on('error', error => {
-      reject(error);
-    }).on('close', () => {
-      preludeSize = meter.bytes;
-
-      _fs.default.open(target.output, 'r+', (error, fd) => {
-        if (error) return reject(error);
-        injectPlaceholders(fd, placeholders, {
-          BAKERY: makeBakeryValueFromBakes(bakes),
-          PAYLOAD_POSITION: payloadPosition,
-          PAYLOAD_SIZE: payloadSize,
-          PRELUDE_POSITION: preludePosition,
-          PRELUDE_SIZE: preludeSize
-        }, error2 => {
-          if (error2) return reject(error2);
-
-          _fs.default.close(fd, error3 => {
-            if (error3) return reject(error3);
-            resolve();
-          });
+                injectPlaceholder(fd, placeholders.PRELUDE_POSITION, values.PRELUDE_POSITION, function (error4) {
+                    if (error4) {
+                        return cb(error4);
+                    }
+                    injectPlaceholder(fd, placeholders.PRELUDE_SIZE, values.PRELUDE_SIZE, cb);
+                });
+            });
         });
-      });
     });
-  });
 }
+function makeBakeryValueFromBakes(bakes) {
+    var parts = [];
+    if (bakes.length) {
+        for (var i = 0; i < bakes.length; i += 1) {
+            parts.push(Buffer.from(bakes[i]));
+            parts.push(Buffer.alloc(1));
+        }
+        parts.push(Buffer.alloc(1));
+    }
+    return Buffer.concat(parts);
+}
+function replaceDollarWise(s, sf, st) {
+    return s.replace(sf, function () { return st; });
+}
+function makePreludeBufferFromPrelude(prelude) {
+    return Buffer.from("(function(process, require, console, EXECPATH_FD, PAYLOAD_POSITION, PAYLOAD_SIZE) { " + prelude + "\n})" // dont remove \n
+    );
+}
+function findPackageJson(nodeFile) {
+    var dir = nodeFile;
+    while (dir !== '/') {
+        dir = path_1.default.dirname(dir);
+        if (fs_1.default.existsSync(path_1.default.join(dir, 'package.json'))) {
+            break;
+        }
+    }
+    if (dir === '/') {
+        throw new Error("package.json not found for \"" + nodeFile + "\"");
+    }
+    return dir;
+}
+function nativePrebuildInstall(target, nodeFile) {
+    var prebuild = path_1.default.join(__dirname, '../node_modules/.bin/prebuild-install');
+    var dir = findPackageJson(nodeFile);
+    // parse the target node version from the binaryPath
+    var nodeVersion = path_1.default.basename(target.binaryPath).split('-')[1];
+    if (!/^v[0-9]+\.[0-9]+\.[0-9]+$/.test(nodeVersion)) {
+        throw new Error("Couldn't find node version, instead got: " + nodeVersion);
+    }
+    // prebuild-install will overwrite the target .node file. Instead, we're
+    // going to:
+    //  * Take a backup
+    //  * run prebuild
+    //  * move the prebuild to a new name with a platform/version extension
+    //  * put the backed up file back
+    var nativeFile = nodeFile + "." + target.platform + "." + nodeVersion;
+    if (fs_1.default.existsSync(nativeFile)) {
+        return nativeFile;
+    }
+    if (!fs_1.default.existsSync(nodeFile + ".bak")) {
+        fs_1.default.copyFileSync(nodeFile, nodeFile + ".bak");
+    }
+    child_process_1.execSync(prebuild + " -t " + nodeVersion + " --platform " + types_1.platform[target.platform] + " --arch " + target.arch, { cwd: dir });
+    fs_1.default.copyFileSync(nodeFile, nativeFile);
+    fs_1.default.copyFileSync(nodeFile + ".bak", nodeFile);
+    return nativeFile;
+}
+function producer(_a) {
+    var backpack = _a.backpack, bakes = _a.bakes, slash = _a.slash, target = _a.target, symLinks = _a.symLinks;
+    return new Promise(function (resolve, reject) {
+        var e_1, _a, e_2, _b;
+        if (!Buffer.alloc) {
+            throw log_1.wasReported('Your node.js does not have Buffer.alloc. Please upgrade!');
+        }
+        var prelude = backpack.prelude;
+        var entrypoint = backpack.entrypoint, stripes = backpack.stripes;
+        entrypoint = common_1.snapshotify(entrypoint, slash);
+        stripes = stripes.slice();
+        var vfs = {};
+        try {
+            for (var stripes_1 = __values(stripes), stripes_1_1 = stripes_1.next(); !stripes_1_1.done; stripes_1_1 = stripes_1.next()) {
+                var stripe = stripes_1_1.value;
+                var snap = stripe.snap;
+                snap = common_1.snapshotify(snap, slash);
+                if (!vfs[snap]) {
+                    vfs[snap] = {};
+                }
+            }
+        }
+        catch (e_1_1) { e_1 = { error: e_1_1 }; }
+        finally {
+            try {
+                if (stripes_1_1 && !stripes_1_1.done && (_a = stripes_1.return)) _a.call(stripes_1);
+            }
+            finally { if (e_1) throw e_1.error; }
+        }
+        var snapshotSymLinks = {};
+        try {
+            for (var _c = __values(Object.entries(symLinks)), _d = _c.next(); !_d.done; _d = _c.next()) {
+                var _e = __read(_d.value, 2), key = _e[0], value = _e[1];
+                var k = common_1.snapshotify(key, slash);
+                var v = common_1.snapshotify(value, slash);
+                snapshotSymLinks[k] = v;
+            }
+        }
+        catch (e_2_1) { e_2 = { error: e_2_1 }; }
+        finally {
+            try {
+                if (_d && !_d.done && (_b = _c.return)) _b.call(_c);
+            }
+            finally { if (e_2) throw e_2.error; }
+        }
+        var meter;
+        var count = 0;
+        function pipeToNewMeter(s) {
+            meter = stream_meter_1.default();
+            return s.pipe(meter);
+        }
+        function next(s) {
+            count += 1;
+            return pipeToNewMeter(s);
+        }
+        var binaryBuffer = fs_1.default.readFileSync(target.binaryPath);
+        var placeholders = discoverPlaceholders(binaryBuffer);
+        var track = 0;
+        var prevStripe;
+        var payloadPosition;
+        var payloadSize;
+        var preludePosition;
+        var preludeSize;
+        new multistream_1.default(function (cb) {
+            if (count === 0) {
+                return cb(null, next(into_stream_1.default(binaryBuffer)));
+            }
+            if (count === 1) {
+                payloadPosition = meter.bytes;
+                return cb(null, next(into_stream_1.default(Buffer.alloc(0))));
+            }
+            if (count === 2) {
+                if (prevStripe && !prevStripe.skip) {
+                    var store = prevStripe.store;
+                    var snap = prevStripe.snap;
+                    snap = common_1.snapshotify(snap, slash);
+                    vfs[snap][store] = [track, meter.bytes];
+                    track += meter.bytes;
+                }
+                if (stripes.length) {
+                    // clone to prevent 'skip' propagate
+                    // to other targets, since same stripe
+                    // is used for several targets
+                    var stripe_1 = __assign({}, stripes.shift());
+                    prevStripe = stripe_1;
+                    if (stripe_1.buffer) {
+                        if (stripe_1.store === common_1.STORE_BLOB) {
+                            var snap = common_1.snapshotify(stripe_1.snap, slash);
+                            return fabricator_1.fabricateTwice(bakes, target.fabricator, snap, stripe_1.buffer, function (error, buffer) {
+                                if (error) {
+                                    log_1.log.warn(error.message);
+                                    stripe_1.skip = true;
+                                    return cb(null, into_stream_1.default(Buffer.alloc(0)));
+                                }
+                                cb(null, pipeToNewMeter(into_stream_1.default(buffer || Buffer.from(''))));
+                            });
+                        }
+                        return cb(null, pipeToNewMeter(into_stream_1.default(stripe_1.buffer)));
+                    }
+                    if (stripe_1.file) {
+                        if (stripe_1.file === target.output) {
+                            return cb(log_1.wasReported('Trying to take executable into executable', stripe_1.file), null);
+                        }
+                        assert_1.default.strictEqual(stripe_1.store, common_1.STORE_CONTENT); // others must be buffers from walker
+                        if (common_1.isDotNODE(stripe_1.file)) {
+                            try {
+                                var platformFile = nativePrebuildInstall(target, stripe_1.file);
+                                if (fs_1.default.existsSync(platformFile)) {
+                                    return cb(null, pipeToNewMeter(fs_1.default.createReadStream(platformFile)));
+                                }
+                            }
+                            catch (err) {
+                                log_1.log.debug("prebuild-install failed[" + stripe_1.file + "]:", err);
+                            }
+                        }
+                        return cb(null, pipeToNewMeter(fs_1.default.createReadStream(stripe_1.file)));
+                    }
+                    assert_1.default(false, 'producer: bad stripe');
+                }
+                else {
+                    payloadSize = track;
+                    preludePosition = payloadPosition + payloadSize;
+                    return cb(null, next(into_stream_1.default(makePreludeBufferFromPrelude(replaceDollarWise(replaceDollarWise(replaceDollarWise(prelude, '%VIRTUAL_FILESYSTEM%', JSON.stringify(vfs)), '%DEFAULT_ENTRYPOINT%', JSON.stringify(entrypoint)), '%SYMLINKS%', JSON.stringify(snapshotSymLinks))))));
+                }
+            }
+            else {
+                return cb(null, null);
+            }
+        })
+            .on('error', function (error) {
+            reject(error);
+        })
+            .pipe(fs_1.default.createWriteStream(target.output))
+            .on('error', function (error) {
+            reject(error);
+        })
+            .on('close', function () {
+            preludeSize = meter.bytes;
+            fs_1.default.open(target.output, 'r+', function (error, fd) {
+                if (error)
+                    return reject(error);
+                injectPlaceholders(fd, placeholders, {
+                    BAKERY: makeBakeryValueFromBakes(bakes),
+                    PAYLOAD_POSITION: payloadPosition,
+                    PAYLOAD_SIZE: payloadSize,
+                    PRELUDE_POSITION: preludePosition,
+                    PRELUDE_SIZE: preludeSize,
+                }, function (error2) {
+                    if (error2)
+                        return reject(error2);
+                    fs_1.default.close(fd, function (error3) {
+                        if (error3)
+                            return reject(error3);
+                        resolve();
+                    });
+                });
+            });
+        });
+    });
+}
+exports.default = producer;
+//# sourceMappingURL=producer.js.map
